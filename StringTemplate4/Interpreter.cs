@@ -53,6 +53,7 @@ namespace StringTemplate
     using StringBuilder = System.Text.StringBuilder;
     using StringWriter = System.IO.StringWriter;
     using Type = System.Type;
+    using System.Reflection;
 
     public class Interpreter
     {
@@ -1044,18 +1045,13 @@ namespace StringTemplate
             string propertyName = (string)property;
             string methodSuffix = char.ToUpperInvariant(propertyName[0]) +
                 propertyName.Substring(1);
-            MethodInfo m = GetMethod(c, "get" + methodSuffix);
-            if (m == null)
+            
+            PropertyInfo pi = GetProperty(c, methodSuffix);
+            if (pi != null)
             {
-                m = GetMethod(c, "is" + methodSuffix);
-            }
-            if (m != null)
-            {
-                // save to avoid lookup later
-                //self.getGroup().cacheClassProperty(c,propertyName,m);
                 try
                 {
-                    value = InvokeMethod(m, o, value);
+                    value = pi.GetValue(o, null);
                 }
                 catch (Exception e)
                 {
@@ -1067,29 +1063,53 @@ namespace StringTemplate
             }
             else
             {
-                // try for a visible field
-                try
+                MethodInfo m = GetMethod(c, "get" + methodSuffix);
+                if (m == null)
                 {
-                    FieldInfo f = c.GetField(propertyName);
-                    //self.getGroup().cacheClassProperty(c,propertyName,f);
+                    m = GetMethod(c, "is" + methodSuffix);
+                }
+                if (m != null)
+                {
+                    // save to avoid lookup later
+                    //self.getGroup().cacheClassProperty(c,propertyName,m);
                     try
                     {
-                        value = AccessField(f, o, value);
+                        value = InvokeMethod(m, o, value);
                     }
                     catch (Exception e)
                     {
                         if (ErrorManager.IsCriticalException(e))
                             throw;
 
-                        //ErrorManager.RuntimeError(self, ErrorType.CantAccessPropertyField, e, m);
+                        //ErrorManager.RuntimeError(self, ErrorType.CantAccessPropertyMethod, e, m);
                     }
                 }
-                catch (Exception e)
+                else
                 {
-                    if (ErrorManager.IsCriticalException(e))
-                        throw;
+                    // try for a visible field
+                    try
+                    {
+                        FieldInfo f = c.GetField(propertyName);
+                        //self.getGroup().cacheClassProperty(c,propertyName,f);
+                        try
+                        {
+                            value = AccessField(f, o, value);
+                        }
+                        catch (Exception e)
+                        {
+                            if (ErrorManager.IsCriticalException(e))
+                                throw;
 
-                    //ErrorManager.RuntimeError(self, ErrorType.NoSuchProperty, c, propertyName);
+                            //ErrorManager.RuntimeError(self, ErrorType.CantAccessPropertyField, e, m);
+                        }
+                    }
+                    catch (Exception e)
+                    {
+                        if (ErrorManager.IsCriticalException(e))
+                            throw;
+
+                        //ErrorManager.RuntimeError(self, ErrorType.NoSuchProperty, c, propertyName);
+                    }
                 }
             }
 
@@ -1124,6 +1144,24 @@ namespace StringTemplate
             }
             return m;
         }
+
+        protected PropertyInfo GetProperty(Type c, string propertyName)
+        {
+            PropertyInfo m;
+            try
+            {
+                m = c.GetProperty(propertyName);
+            }
+            catch (Exception e)
+            {
+                if (ErrorManager.IsCriticalException(e))
+                    throw;
+
+                m = null;
+            }
+            return m;
+        }
+
 
         /** Set any default argument values that were not set by the
          *  invoking template or by setAttribute directly.  Note
